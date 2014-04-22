@@ -1,0 +1,163 @@
+diff --git a/rtc/CollisionDetector/CMakeLists.txt b/rtc/CollisionDetector/CMakeLists.txt
+index 229f8a3..f5863f7 100644
+--- a/rtc/CollisionDetector/CMakeLists.txt
++++ b/rtc/CollisionDetector/CMakeLists.txt
+@@ -1,25 +1,26 @@
+ set(seq_dir ${PROJECT_SOURCE_DIR}/rtc/SequencePlayer)
+-set(comp_sources ${seq_dir}/interpolator.cpp CollisionDetector.cpp CollisionDetectorService_impl.cpp GLscene.cpp VclipLinkPair.cpp)
+-set(vclip_dir vclip_1.0/)
+-set(vclip_sources ${vclip_dir}/src/vclip.C ${vclip_dir}/src/PolyTree.C ${vclip_dir}/src/mv.C)
++set(comp_sources ${seq_dir}/interpolator.cpp CollisionDetector.cpp CollisionDetectorService_impl.cpp GLscene.cpp FCLLinkPair.cpp)
++
++pkg_check_modules(fcl fcl REQUIRED)
+ 
+ add_definitions(-DQHULL)
+-include_directories(${LIBXML2_INCLUDE_DIR} ${QHULL_INCLUDE_DIR} ${seq_dir} ${vclip_dir}/include)
+-add_library(CollisionDetector SHARED ${comp_sources} ${vclip_sources})
+-target_link_libraries(CollisionDetector hrpsysUtil ${QHULL_LIBRARIES})
++include_directories(${LIBXML2_INCLUDE_DIR} ${QHULL_INCLUDE_DIR} ${seq_dir} ${fcl_INCLUDE_DIR})
++add_library(CollisionDetector SHARED ${comp_sources})
++target_link_libraries(CollisionDetector hrpsysUtil ${QHULL_LIBRARIES} ${fcl_LIBRARIES})
+ set_target_properties(CollisionDetector PROPERTIES PREFIX "")
+ 
+-add_executable(CollisionDetectorComp CollisionDetectorComp.cpp ${comp_sources} ${vclip_sources})
+-target_link_libraries(CollisionDetectorComp hrpsysUtil ${QHULL_LIBRARIES})
++add_executable(CollisionDetectorComp CollisionDetectorComp.cpp ${comp_sources} )
++target_link_libraries(CollisionDetectorComp hrpsysUtil ${QHULL_LIBRARIES} ${fcl_LIBRARIES})
+ 
+-add_executable(SetupCollisionPair SetupCollisionPair.cpp)
+-target_link_libraries(SetupCollisionPair CollisionDetector ${OPENHRP_LIBRARIES} ${QHULL_LIBRARIES})
++#add_executable(SetupCollisionPair SetupCollisionPair.cpp)
++#target_link_libraries(SetupCollisionPair CollisionDetector ${OPENHRP_LIBRARIES} ${QHULL_LIBRARIES})
+ 
+ add_executable(CollisionDetectorViewer CollisionDetectorViewer.cpp GLscene.cpp)
+ target_link_libraries(CollisionDetectorViewer hrpsysUtil)
+ set_target_properties (CollisionDetectorViewer PROPERTIES COMPILE_DEFINITIONS "USE_COLLISION_STATE")
+ 
+-set(target CollisionDetector CollisionDetectorComp SetupCollisionPair CollisionDetectorViewer)
++#set(target CollisionDetector CollisionDetectorComp SetupCollisionPair CollisionDetectorViewer)
++set(target CollisionDetector CollisionDetectorComp CollisionDetectorViewer)
+ 
+ install(TARGETS ${target}
+   RUNTIME DESTINATION bin CONFIGURATIONS Release Debug
+diff --git a/rtc/CollisionDetector/CollisionDetector.cpp b/rtc/CollisionDetector/CollisionDetector.cpp
+index beec2c5..02bbeb8 100644
+--- a/rtc/CollisionDetector/CollisionDetector.cpp
++++ b/rtc/CollisionDetector/CollisionDetector.cpp
+@@ -172,7 +172,7 @@ RTC::ReturnCode_t CollisionDetector::onActivated(RTC::UniqueId ec_id)
+                 prop["collision_model"] == "" ) { // set convex hull as default
+         convertToConvexHull(m_robot);
+     }
+-    setupVClipModel(m_robot);
++    setupFCLModel(m_robot);
+ 
+     if ( prop["collision_pair"] != "" ) {
+ 	std::cerr << "prop[collision_pair] ->" << prop["collision_pair"] << std::endl;
+@@ -200,8 +200,8 @@ RTC::ReturnCode_t CollisionDetector::onActivated(RTC::UniqueId ec_id)
+                 continue;
+             }
+ 	    std::cerr << "check collisions between " << m_robot->link(name1)->name << " and " <<  m_robot->link(name2)->name << std::endl;
+-	    m_pair[tmp] = new CollisionLinkPair(new VclipLinkPair(m_robot->link(name1), m_VclipLinks[m_robot->link(name1)->index],
+-                                                                  m_robot->link(name2), m_VclipLinks[m_robot->link(name2)->index], 0));
++	    m_pair[tmp] = new CollisionLinkPair(new FCLLinkPair(m_robot->link(name1), m_FCLModels[m_robot->link(name1)->index],
++                                                                m_robot->link(name2), m_FCLModels[m_robot->link(name2)->index], 0));
+ 	}
+     }
+ 
+@@ -313,7 +313,7 @@ RTC::ReturnCode_t CollisionDetector::onExecute(RTC::UniqueId ec_id)
+             it = m_pair.begin();
+             for (unsigned int i = 0; it != m_pair.end(); i++, it++){
+                 CollisionLinkPair* c = it->second;
+-                VclipLinkPairPtr p = c->pair;
++                FCLLinkPairPtr p = c->pair;
+                 tp.lines.push_back(std::make_pair(c->point0, c->point1));
+                 if ( c->distance <= c->pair->getTolerance() ) {
+                     m_safe_posture = false;
+@@ -479,13 +479,13 @@ bool CollisionDetector::getCollisionStatus(OpenHRP::CollisionDetectorService::Co
+     return true;
+ }
+ 
+-void CollisionDetector::setupVClipModel(hrp::BodyPtr i_body)
++void CollisionDetector::setupFCLModel(hrp::BodyPtr i_body)
+ {
+-    m_VclipLinks.resize(i_body->numLinks());
++    m_FCLModels.resize(i_body->numLinks());
+     //std::cerr << i_body->numLinks() << std::endl;
+     for (int i=0; i<i_body->numLinks(); i++) {
+       assert(i_body->link(i)->index == i);
+-      setupVClipModel(i_body->link(i));
++      setupFCLModel(i_body->link(i));
+     }
+ }
+ 
+@@ -516,7 +516,7 @@ bool CollisionDetector::enable(void)
+     std::map<std::string, CollisionLinkPair *>::iterator it = m_pair.begin();
+     for (unsigned int i = 0; it != m_pair.end(); it++, i++){
+         CollisionLinkPair* c = it->second;
+-        VclipLinkPairPtr p = c->pair;
++        FCLLinkPairPtr p = c->pair;
+         c->distance = c->pair->computeDistance(c->point0.data(), c->point1.data());
+         if ( c->distance <= c->pair->getTolerance() ) {
+             hrp::JointPathPtr jointPath = m_robot->getJointPath(p->link(0),p->link(1));
+@@ -543,8 +543,9 @@ bool CollisionDetector::disable(void)
+     return true;
+ }
+ 
+-void CollisionDetector::setupVClipModel(hrp::Link *i_link)
++void CollisionDetector::setupFCLModel(hrp::Link *i_link)
+ {
++#if 0
+     Vclip::Polyhedron* i_vclip_model = new Vclip::Polyhedron();
+     int n = i_link->coldetModel->getNumVertices();
+     float v[3];
+@@ -557,6 +558,7 @@ void CollisionDetector::setupVClipModel(hrp::Link *i_link)
+     i_vclip_model->buildHull();
+     i_vclip_model->check();
+     m_VclipLinks[i_link->index] = i_vclip_model;
++#endif
+ }
+ 
+ extern "C"
+diff --git a/rtc/CollisionDetector/CollisionDetector.h b/rtc/CollisionDetector/CollisionDetector.h
+index feccc2f..5395f94 100644
+--- a/rtc/CollisionDetector/CollisionDetector.h
++++ b/rtc/CollisionDetector/CollisionDetector.h
+@@ -25,7 +25,7 @@
+ #include "TimedPosture.h"
+ #include "interpolator.h"
+ 
+-#include "VclipLinkPair.h"
++#include "FCLLinkPair.h"
+ #include "CollisionDetectorService_impl.h"
+ 
+ // Service implementation headers
+@@ -151,16 +151,16 @@ class CollisionDetector
+ 
+   
+   // </rtc-template>
+-  void setupVClipModel(hrp::BodyPtr i_body);
+-  void setupVClipModel(hrp::Link *i_link);
++  void setupFCLModel(hrp::BodyPtr i_body);
++  void setupFCLModel(hrp::Link *i_link);
+ 
+  private:
+   class CollisionLinkPair {
+   public:
+-      CollisionLinkPair(VclipLinkPairPtr i_pair) : point0(hrp::Vector3(0,0,0)), point1(hrp::Vector3(0,0,0)), distance(0) {
++      CollisionLinkPair(FCLLinkPairPtr i_pair) : point0(hrp::Vector3(0,0,0)), point1(hrp::Vector3(0,0,0)), distance(0) {
+           pair = i_pair;
+       }
+-      VclipLinkPairPtr pair;
++      FCLLinkPairPtr pair;
+       hrp::Vector3 point0, point1;
+       double distance;
+   };
+@@ -168,7 +168,7 @@ class CollisionDetector
+   LogManager<TimedPosture> m_log; 
+   SDLwindow m_window;
+   GLbody *m_glbody;
+-  std::vector<Vclip::Polyhedron *> m_VclipLinks;
++  std::vector<FCLModel *> m_FCLModels;
+   bool m_use_viewer;
+   hrp::BodyPtr m_robot;
+   std::map<std::string, CollisionLinkPair *> m_pair;

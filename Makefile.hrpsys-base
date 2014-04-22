@@ -5,7 +5,7 @@ GIT_DIR = build/hrpsys-base-source
 PATCH_DIR = $(CURDIR)
 GIT_URL = https://github.com/fkanehiro/hrpsys-base.git
 GIT_REVISION = 315.1.10
-GIT_PATCH   = ${PATCH_DIR}/patch/boost.patch
+GIT_PATCH   = ${PATCH_DIR}/patch/boost.patch ${PATCH_DIR}/patch/use_fcl.patch
 #if arch
 ifeq (,$(wildcard /etc/debian_version)) #if not debian_version exists
 GIT_PATCH  += ${PATCH_DIR}/patch/python.patch
@@ -15,7 +15,7 @@ GIT_PATCH  += ${PATCH_DIR}/patch/qhull.patch
 endif
 
 OPENRTM_DIR ?= $(shell rospack find openrtm_aist)
-PKG_CONFIG_PATH := $(shell rospack find openrtm_aist)/lib/pkgconfig:$(shell rospack find openhrp3)/lib/pkgconfig:$(PKG_CONFIG_PATH)
+PKG_CONFIG_PATH := $(shell rospack find openrtm_aist)/lib/pkgconfig:$(shell rospack find openhrp3)/lib/pkgconfig:/opt/ros/$(ROS_DISTRO)/lib/pkgconfig:$(PKG_CONFIG_PATH)
 MK_DIR       = $(shell rospack find mk)
 NUM_OF_CPUS = $(shell grep -c '^processor' /proc/cpuinfo)
 
