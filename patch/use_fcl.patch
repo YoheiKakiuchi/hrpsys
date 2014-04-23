@@ -1,7 +1,7 @@
 diff --git a/rtc/CollisionDetector/CMakeLists.txt b/rtc/CollisionDetector/CMakeLists.txt
 index 229f8a3..f5863f7 100644
---- a/rtc/CollisionDetector/CMakeLists.txt
-+++ b/rtc/CollisionDetector/CMakeLists.txt
+--- rtc/CollisionDetector/CMakeLists.txt
++++ rtc/CollisionDetector/CMakeLists.txt
 @@ -1,25 +1,26 @@
  set(seq_dir ${PROJECT_SOURCE_DIR}/rtc/SequencePlayer)
 -set(comp_sources ${seq_dir}/interpolator.cpp CollisionDetector.cpp CollisionDetectorService_impl.cpp GLscene.cpp VclipLinkPair.cpp)
@@ -42,8 +42,8 @@ index 229f8a3..f5863f7 100644
    RUNTIME DESTINATION bin CONFIGURATIONS Release Debug
 diff --git a/rtc/CollisionDetector/CollisionDetector.cpp b/rtc/CollisionDetector/CollisionDetector.cpp
 index beec2c5..02bbeb8 100644
---- a/rtc/CollisionDetector/CollisionDetector.cpp
-+++ b/rtc/CollisionDetector/CollisionDetector.cpp
+--- rtc/CollisionDetector/CollisionDetector.cpp
++++ rtc/CollisionDetector/CollisionDetector.cpp
 @@ -172,7 +172,7 @@ RTC::ReturnCode_t CollisionDetector::onActivated(RTC::UniqueId ec_id)
                  prop["collision_model"] == "" ) { // set convex hull as default
          convertToConvexHull(m_robot);
@@ -120,8 +120,8 @@ index beec2c5..02bbeb8 100644
  extern "C"
 diff --git a/rtc/CollisionDetector/CollisionDetector.h b/rtc/CollisionDetector/CollisionDetector.h
 index feccc2f..5395f94 100644
---- a/rtc/CollisionDetector/CollisionDetector.h
-+++ b/rtc/CollisionDetector/CollisionDetector.h
+--- rtc/CollisionDetector/CollisionDetector.h
++++ rtc/CollisionDetector/CollisionDetector.h
 @@ -25,7 +25,7 @@
  #include "TimedPosture.h"
  #include "interpolator.h"
@@ -161,3 +161,88 @@ index feccc2f..5395f94 100644
    bool m_use_viewer;
    hrp::BodyPtr m_robot;
    std::map<std::string, CollisionLinkPair *> m_pair;
+diff --git a/rtc/CollisionDetector/FCLLinkPair.cpp b/rtc/CollisionDetector/FCLLinkPair.cpp
+new file mode 100644
+index 0000000..31c134d
+--- /dev/null
++++ rtc/CollisionDetector/FCLLinkPair.cpp
+@@ -0,0 +1,47 @@
++#include "FCLLinkPair.h"
++
++FCLLinkPair::FCLLinkPair(hrp::Link* link0, FCLModel *fcl_model0,
++                         hrp::Link* link1, FCLModel *fcl_model1, double tolerance)
++{
++    links_[0] = link0;
++    links_[1] = link1;
++    model1 = fcl_model0;
++    model2 = fcl_model1;
++    tolerance_ = tolerance;
++}
++
++FCLLinkPair::~FCLLinkPair()
++{
++}
++
++bool FCLLinkPair::checkCollision()
++{
++    double p1[3], p2[3];
++    double len = computeDistance(p1,p2);
++    if ( len < tolerance_ ) {
++        return true;
++    }
++    return false;
++}
++
++double FCLLinkPair::computeDistance(double *q1, double *q2)
++{
++    const hrp::Vector3&  p1 = links_[0]->p;
++    hrp::Matrix33 r1 = links_[0]->attitude();
++    const hrp::Vector3&  p2 = links_[1]->p;
++    hrp::Matrix33 r2 = links_[1]->attitude();
++
++    //fcl::Vec3f trs(pos[0], pos[1], pos[2]);
++    //fcl::Quaternion3f qu(rot[0], rot[1], rot[2], rot[3]);
++    //fcl::Transform3f pose1 (qu, trs);
++    fcl::Transform3f pose1;
++    fcl::Transform3f pose2;
++
++    bool enable_nearest_points = true;
++    fcl::DistanceRequest request(enable_nearest_points);
++    fcl::DistanceResult local_result;
++
++    fcl::distance(model1, pose1, model2, pose2, request, local_result);
++
++    return local_result.min_distance;
++}
+diff --git a/rtc/CollisionDetector/FCLLinkPair.h b/rtc/CollisionDetector/FCLLinkPair.h
+new file mode 100644
+index 0000000..a46a394
+--- /dev/null
++++ rtc/CollisionDetector/FCLLinkPair.h
+@@ -0,0 +1,26 @@
++#include <hrpModel/Link.h>
++
++#include <fcl/distance.h>
++#include <fcl/shape/geometric_shape_to_BVH_model.h>
++
++typedef fcl::BVHModel<fcl::OBBRSS> FCLModel;
++
++class FCLLinkPair  : public hrp::Referenced {
++public:
++    FCLLinkPair(hrp::Link* link0, FCLModel *fcl_model0,
++                hrp::Link* link1, FCLModel *fcl_model1, double tolerance=0);
++    ~FCLLinkPair();
++    bool checkCollision();
++    double computeDistance(double *q1, double *q2);
++    hrp::Link* link(int index) { return links_[index]; }
++    double getTolerance() { return tolerance_; }
++    void setTolerance(double t) { tolerance_ = t; }
++
++private:
++    hrp::Link *links_[2];
++    FCLModel *model1, *model2;
++
++    double tolerance_;
++};
++
++typedef boost::intrusive_ptr<FCLLinkPair> FCLLinkPairPtr;
